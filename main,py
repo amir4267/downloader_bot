@@ -1,0 +1,84 @@
+import telebot
+import yt_dlp
+import os
+import time
+import requests
+import threading
+
+# جلوگیری از sleep در Railway
+threading.Thread(target=lambda: None).start()
+
+# توکن از Environment Variables
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    print("خطا: توکن پیدا نشد! BOT_TOKEN رو ست کنید.")
+    exit(1)
+
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
+def download_video(url):
+    if any(x in url for x in ['vt.tiktok.com', 'instagram.com', 'youtu.be', 'youtube.com/shorts']):
+        try:
+            r = requests.head(url, allow_redirects=True, timeout=10)
+            url = r.url
+        except:
+            pass
+
+    ydl_opts = {
+        'outtmpl': '%(id)s.%(ext)s',
+        'format': 'best[height<=720][ext=mp4]/best[height<=720]/best',
+        'merge_output_format': 'mp4',
+        'quiet': True,
+        'no_warnings': True,
+        'retries': 10,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            base = os.path.splitext(filename)[0]
+            for ext in ['.mp4', '.webm', '.mkv']:
+                path = base + ext
+                if os.path.exists(path):
+                    return path
+            return filename
+    except Exception as e:
+        print(f"خطا: {e}")
+        raise
+
+@bot.message_handler(func=lambda m: any(site in m.text.lower() for site in ['tiktok.com', 'instagram.com', 'youtube.com', 'youtu.be']))
+def handle_all(message):
+    chat_id = message.chat.id
+    user_msg_id = message.message_id
+
+    status = bot.reply_to(message, "<i>در حال دانلود...</i> ⏳")
+
+    try:
+        path = download_video(message.text)
+        size_mb = os.path.getsize(path) / (1024*1024)
+
+        if size_mb > 48:
+            os.remove(path)
+            bot.edit_message_text("حجم بیشتر از ۴۸ مگابایت بود!", chat_id, status.message_id)
+            return
+
+        with open(path, 'rb') as video:
+            bot.send_video(chat_id, video, caption=f"دانلود شد\nحجم: {size_mb:.1f} مگابایت", reply_to_message_id=user_msg_id)
+
+        time.sleep(2)
+        try:
+            bot.delete_message(chat_id, user_msg_id)
+            bot.delete_message(chat_id, status.message_id)
+        except:
+            pass
+        os.remove(path)
+
+    except:
+        try:
+            bot.edit_message_text("دانلود نشد! (خصوصی/حذف‌شده/خطا)", chat_id, status.message_id)
+        except:
+            bot.reply_to(message, "دانلود نشد!")
+
+print("ربات دانلودر ۲۴ ساعته فعال شد!")
+bot.infinity_polling(timeout=60)
