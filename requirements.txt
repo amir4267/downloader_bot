@@ -1,0 +1,3 @@
+pytelegrambotAPI
+yt-dlp
+requests
